@@ -24,7 +24,7 @@ import scala.io.StdIn
 object WebServer {
 
   val Conf: SparkConf = new SparkConf().setAppName("FogSpark").setMaster("local[*]")
-  val CloudURL = "http://localhost:8090/data"
+  val CloudURL = "http://localhost:8080/"
   val bufferSize = 10000
   val sendIntervalMS = 60000
 
@@ -83,7 +83,7 @@ object WebServer {
 
     class MyJsonService extends Directives with JsonSupport {
       val route: Route = {
-        path("data") {
+        path("/") {
           post {
             entity(as[DataIoT]) { data =>
               val saved: Future[Done] = saveData(data)
@@ -97,7 +97,7 @@ object WebServer {
       }
     }
 
-    val bindingFuture = Http().bindAndHandle(new MyJsonService().route, "localhost", 8080)
+    val bindingFuture = Http().bindAndHandle(new MyJsonService().route, "localhost", 8090)
     val thread = new Thread {
       override def run(): Unit = {
         println(this.getName + " Started second (sender) thread...")
@@ -109,7 +109,7 @@ object WebServer {
       }
     }
     thread.start()
-    println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
+    println(s"Server online at http://localhost:8090/\nPress RETURN to stop...")
     StdIn.readLine() // let it run until user presses return
     println("Stopping web server")
     bindingFuture
