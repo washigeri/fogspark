@@ -45,6 +45,7 @@ object WebServer {
 
 
     def saveData(dataIoT: DataIoT): Future[Done] = {
+      //println(s"Received $dataIoT")
       if (!dataIoTs.exists(d => d.equals(dataIoT))) {
         dataIoTs.+=(dataIoT)
         if (dataIoTs.length >= bufferSize) {
@@ -59,21 +60,24 @@ object WebServer {
     }
 
     def sendDataToCloud(dataRdd: RDD[DataIoT]): Unit = {
-      println(Thread.currentThread().getName + " Sending data to cloud")
-      val jsonresult = "[" + dataRdd.map(d => MyJsonProtocol.DataIoTJsonFormat.write(d).compactPrint).reduce((a, b) => a + "," + b) + "]"
-      val client = HttpClients.createDefault()
-      val uri = new URI(CloudURL)
-      val post = new HttpPost(uri)
-      post.addHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-      post.setEntity(new StringEntity(jsonresult))
-      val response = client.execute(post)
-      try {
-        val entity = response.getEntity
-        println(response.getStatusLine.getStatusCode, response.getStatusLine.getReasonPhrase)
-        println(IOUtils.toString(entity.getContent, StandardCharsets.UTF_8))
-      }
-      finally {
-        response.close()
+      if (!dataRdd.isEmpty()) {
+        println(Thread.currentThread().getName + " Sending data to cloud, size :" + dataRdd.count())
+        val jsonresult = "[" + dataRdd.map(d => MyJsonProtocol.DataIoTJsonFormat.write(d).compactPrint).reduce((a, b) => a + "," + b) + "]"
+        val client = HttpClients.createDefault()
+        val uri = new URI(CloudURL)
+        val post = new HttpPost(uri)
+        post.addHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+        post.setEntity(new StringEntity(jsonresult))
+        val response = client.execute(post)
+        try {
+          val entity = response.getEntity
+          println(response.getStatusLine.getStatusCode, response.getStatusLine.getReasonPhrase)
+          println(IOUtils.toString(entity.getContent, StandardCharsets.UTF_8))
+        }
+        finally {
+          response.close()
+
+        }
       }
     }
 
@@ -83,7 +87,7 @@ object WebServer {
 
     class MyJsonService extends Directives with JsonSupport {
       val route: Route = {
-        path("/") {
+        path("data") {
           post {
             entity(as[DataIoT]) { data =>
               val saved: Future[Done] = saveData(data)
@@ -103,8 +107,10 @@ object WebServer {
         println(this.getName + " Started second (sender) thread...")
         while (!sc.isStopped) {
           Thread.sleep(sendIntervalMS)
-          sendDataToCloud(rddDataIot)
-          rddDataIot = sc.parallelize(new ListBuffer[DataIoT])
+          if (!sc.isStopped) {
+            sendDataToCloud(rddDataIot)
+            rddDataIot = sc.parallelize(new ListBuffer[DataIoT])
+          }
         }
       }
     }
