@@ -1,5 +1,6 @@
 import java.util.Date
 
+//noinspection SpellCheckingInspection
 class DataIoT(var devID: Int, var location: String, var datatype: String, var datavalue: String, var added: Date) extends Serializable {
 
   override def equals(obj: scala.Any): Boolean = obj match {
