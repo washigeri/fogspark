@@ -23,8 +23,10 @@ import scala.io.StdIn
 
 
 //noinspection SpellCheckingInspection
+/**
+  * Main Object
+  */
 object WebServer {
-
   val Conf: SparkConf = new SparkConf().setAppName("FogSpark").setMaster("local[*]")
   val CloudURL: String = "http://localhost:8080/"
   val bufferSize: Int = 100
@@ -36,6 +38,11 @@ object WebServer {
   var stopped: Boolean = false
 
 
+  /**
+    * Méthode main. Lance le serveur Web, gère Apache Spark et communique avec le Cloud.
+    *
+    * @param args Paramètre de ligne de commande. Inutilisés.
+    */
   def main(args: Array[String]): Unit = {
 
     //start spark
@@ -43,21 +50,27 @@ object WebServer {
     sc.setLogLevel("ERROR")
 
 
-    var dataIoTs: ListBuffer[DataIoT] = new ListBuffer()
-    implicit val system: ActorSystem = ActorSystem("fog-spark-http")
+    var dataIoTs: ListBuffer[DataIoT] = new ListBuffer() //Initalise un buffer en RAM
+    implicit val system: ActorSystem = ActorSystem("fog-spark-http") //Configuration serveur HTTP
     implicit val materializer: ActorMaterializer = ActorMaterializer()
     implicit val executionContext: ExecutionContextExecutor = system.dispatcher
 
-    var rddDataIot = sc.parallelize(dataIoTs)
+    var rddDataIot = sc.parallelize(dataIoTs) //Créé un RDD Initial vide
 
 
+    /**
+      * Sauvegarde les données reçues par les objets IoT. Est appelée à chaque requête POST des IoT
+      *
+      * @param dataIoT donnée reçue de l'objet IoT
+      * @return Future qui indique que l'opération est terminée
+      */
     def saveData(dataIoT: DataIoT): Future[Done] = {
       if (firstData) {
         firstData = false
-        t0 = System.nanoTime()
+        t0 = System.nanoTime() //utilisé pour mesurer les performances
       }
       datareceived += SizeEstimator.estimate(MyJsonProtocol.DataIoTJsonFormat.write(dataIoT))
-      if (!dataIoTs.exists(d => d.equals(dataIoT))) {
+      if (!dataIoTs.exists(d => d.equals(dataIoT))) { //verifie la présence des données dans le buffer en RAM
         dataIoTs.+=(dataIoT)
         emptyBuffer()
       }
@@ -66,14 +79,22 @@ object WebServer {
       }
     }
 
+    /**
+      * Vide le buffer en RAM pour l'incorporer au RDD SPark
+      */
     def emptyBuffer(): Unit = {
       if (dataIoTs.length >= bufferSize) {
-        val temp = sc.parallelize(dataIoTs)
-        rddDataIot = rddDataIot.union(temp).distinct()
-        dataIoTs.clear()
+        val temp = sc.parallelize(dataIoTs) //crée un RDD à partir du buffer
+        rddDataIot = rddDataIot.union(temp).distinct() //fusionne le nouveau RDD avec l'ancien
+        dataIoTs.clear() //vide le buffer RAM
       }
     }
 
+    /**
+      * Envoie le contenu du RDD Spark au Cloud via une requête HTTP Post
+      *
+      * @param dataRdd RDD Spark a envoyer
+      */
     def sendDataToCloud(dataRdd: RDD[DataIoT]): Unit = {
       if (!dataRdd.isEmpty()) {
         println(Thread.currentThread().getName + " Sending data to cloud, size :" + dataRdd.count())
@@ -97,10 +118,16 @@ object WebServer {
       }
     }
 
+    /**
+      * Utilisé par le serveur Web pour serializer/deserializer
+      */
     trait JsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
       implicit val dataIotFormat: MyJsonProtocol.DataIoTJsonFormat.type = MyJsonProtocol.DataIoTJsonFormat
     }
 
+    /**
+      * Définition de la table de routage du serveur Web
+      */
     class MyJsonService extends Directives with JsonSupport {
       val route: Route = {
         path("data") {
@@ -117,16 +144,19 @@ object WebServer {
       }
     }
 
-    val bindingFuture = Http().bindAndHandle(new MyJsonService().route, "localhost", 8090)
+    val bindingFuture = Http().bindAndHandle(new MyJsonService().route, "localhost", 8090) //crée le serveur Web et le met en écoute
     val thread = new Thread {
+      /**
+        * Thread gérant l'envoie des données au Cloud. On envoie les données toutes les [[WebServer.sendIntervalMS]] ms.
+        */
       override def run(): Unit = {
         var stop = false
         println(this.getName + " Started second (sender) thread...")
         while (!sc.isStopped && !stop) {
           Thread.sleep(sendIntervalMS)
           if (!sc.isStopped) {
-            sendDataToCloud(rddDataIot)
-            rddDataIot = sc.parallelize(new ListBuffer[DataIoT])
+            sendDataToCloud(rddDataIot) //envoi des données
+            rddDataIot = sc.parallelize(new ListBuffer[DataIoT]) //vide le RDD
           }
           stop = stopped
         }

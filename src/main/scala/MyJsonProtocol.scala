@@ -2,6 +2,9 @@ import java.util.Calendar
 
 import spray.json._
 
+/**
+  * Objet pour serializer et deserializer (JSON) un [[DataIoT]]
+  */
 object MyJsonProtocol extends DefaultJsonProtocol {
 
   implicit object DataIoTJsonFormat extends RootJsonFormat[DataIoT] {
